@@ -15,7 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func findAttachedCgroupDeviceFilters(dirFd int) ([]*ebpf.Program, error) {
+func findAttachedCgroupDeviceFilters(dirFd int) (_ []*ebpf.Program, retErr error) {
 	type bpfAttrQuery struct {
 		TargetFd    uint32
 		AttachType  uint32
@@ -54,8 +54,17 @@ func findAttachedCgroupDeviceFilters(dirFd int) ([]*ebpf.Program, error) {
 		}
 
 		// Convert the ids to program handles.
+		// On error we don't return the programs slice, so close the fds stored there.
 		progIds = progIds[:size]
 		programs := make([]*ebpf.Program, 0, len(progIds))
+		defer func() {
+			if retErr != nil {
+				for _, p := range programs {
+					p.Close()
+				}
+			}
+		}()
+
 		for _, progId := range progIds {
 			program, err := ebpf.NewProgramFromID(ebpf.ProgramID(progId))
 			if err != nil {
