@@ -182,6 +182,7 @@ func loadAttachCgroupDeviceFilter(insts asm.Instructions, license string, dirFd 
 	if err != nil {
 		return err
 	}
+	defer prog.Close()
 
 	// If there is only one old program, we can just replace it directly.
 
