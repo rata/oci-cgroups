@@ -15,10 +15,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func nilCloser() error {
-	return nil
-}
-
 func findAttachedCgroupDeviceFilters(dirFd int) ([]*ebpf.Program, error) {
 	type bpfAttrQuery struct {
 		TargetFd    uint32
@@ -154,7 +150,7 @@ func haveBpfProgReplace() bool {
 // Requires the system to be running in cgroup2 unified-mode with kernel >= 4.15 .
 //
 // https://github.com/torvalds/linux/commit/ebc614f687369f9df99828572b1d85a7c2de3d92
-func loadAttachCgroupDeviceFilter(insts asm.Instructions, license string, dirFd int) (func() error, error) {
+func loadAttachCgroupDeviceFilter(insts asm.Instructions, license string, dirFd int) error {
 	// Increase `ulimit -l` limit to avoid BPF_PROG_LOAD error (#2167).
 	// This limit is not inherited into the container.
 	memlockLimit := &unix.Rlimit{
@@ -166,7 +162,7 @@ func loadAttachCgroupDeviceFilter(insts asm.Instructions, license string, dirFd 
 	// Get the list of existing programs.
 	oldProgs, err := findAttachedCgroupDeviceFilters(dirFd)
 	if err != nil {
-		return nilCloser, err
+		return err
 	}
 	defer func() {
 		for _, p := range oldProgs {
@@ -184,7 +180,7 @@ func loadAttachCgroupDeviceFilter(insts asm.Instructions, license string, dirFd 
 	}
 	prog, err := ebpf.NewProgram(spec)
 	if err != nil {
-		return nilCloser, err
+		return err
 	}
 
 	// If there is only one old program, we can just replace it directly.
@@ -201,20 +197,7 @@ func loadAttachCgroupDeviceFilter(insts asm.Instructions, license string, dirFd 
 	}
 	err = link.RawAttachProgram(attachProgramOptions)
 	if err != nil {
-		return nilCloser, fmt.Errorf("failed to call BPF_PROG_ATTACH (BPF_CGROUP_DEVICE, BPF_F_ALLOW_MULTI): %w", err)
-	}
-	closer := func() error {
-		err = link.RawDetachProgram(link.RawDetachProgramOptions{
-			Target:  dirFd,
-			Program: prog,
-			Attach:  ebpf.AttachCGroupDevice,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to call BPF_PROG_DETACH (BPF_CGROUP_DEVICE): %w", err)
-		}
-		// TODO: Should we attach the old filters back in this case? Otherwise
-		//       we fail-open on a security feature, which is a bit scary.
-		return nil
+		return fmt.Errorf("failed to call BPF_PROG_ATTACH (BPF_CGROUP_DEVICE, BPF_F_ALLOW_MULTI): %w", err)
 	}
 	if !useReplaceProg {
 		logLevel := logrus.DebugLevel
@@ -254,9 +237,9 @@ func loadAttachCgroupDeviceFilter(insts asm.Instructions, license string, dirFd 
 				Attach:  ebpf.AttachCGroupDevice,
 			})
 			if err != nil {
-				return closer, fmt.Errorf("failed to call BPF_PROG_DETACH (BPF_CGROUP_DEVICE) on old filter program: %w", err)
+				return fmt.Errorf("failed to call BPF_PROG_DETACH (BPF_CGROUP_DEVICE) on old filter program: %w", err)
 			}
 		}
 	}
-	return closer, nil
+	return nil
 }
