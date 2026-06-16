@@ -168,6 +168,12 @@ func loadAttachCgroupDeviceFilter(insts asm.Instructions, license string, dirFd 
 	if err != nil {
 		return nilCloser, err
 	}
+	defer func() {
+		for _, p := range oldProgs {
+			p.Close()
+		}
+	}()
+
 	useReplaceProg := haveBpfProgReplace() && len(oldProgs) == 1
 
 	// Generate new program.
